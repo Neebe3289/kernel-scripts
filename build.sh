@@ -241,7 +241,7 @@ doCompile() {
         cd $AK3_DIR
         sed -i "s/kernel.string=.*/kernel.string=Perf Kernel for Redmi Note 8 Pro by $KBUILD_BUILD_USER/g" anykernel.sh
 
-        if [ "$build_mode" = "ksu" ]; then
+        if [ "$build_type" = "ksu" ]; then
             zipname="Perf-KSU-$commits-begonia-$date_time.zip"
         else
             zipname="Perf-$commits-begonia-$date_time.zip"
