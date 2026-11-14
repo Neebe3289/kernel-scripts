@@ -10,7 +10,7 @@ CLANG_DIR=$TOOLS_DIR/clang-llvm
 GCC64_DIR=$TOOLS_DIR/gcc64
 GCC32_DIR=$TOOLS_DIR/gcc32
 AK3_DIR=$TOOLS_DIR/AnyKernel3
-PATCH_DIR=$TOOLS_DIR/kernel_patches
+PATCH_DIR=$TOOLS_DIR/kernel-patch
 
 DEFCONFIG=begonia_user_defconfig
 
@@ -78,7 +78,7 @@ doSetupTools() {
     fi
 
     if [ ! -d $PATCH_DIR ]; then
-        git clone --depth=1 https://github.com/Neebe3289/kernel_patches $PATCH_DIR
+        git clone --depth=1 https://github.com/Neebe3289/kernel-patch $PATCH_DIR
     fi
 }
 
