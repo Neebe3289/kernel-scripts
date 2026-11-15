@@ -19,11 +19,6 @@ err() { echo -e "\e[1;31m$*\e[0m"; }
 
 #### Parsing parameters ####
 
-if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
-    err "- Missing BOT_TOKEN or CHAT_ID!"
-    exit 1
-fi
-
 while [ $# -gt 0 ]; do
     case "$1" in
         -b|--build)     kernelsu=false ;;
@@ -37,8 +32,8 @@ while [ $# -gt 0 ]; do
 Usage: $0 <operate>
 operate:
   -b, --build       : Build normal kernel + KPatch fixes
-  -k, --ksu         : Build KernelSU kernel
-  -a, --all         : Build both Normal and KernelSU kernels
+  -k, --ksu         : Build KernelSU kernels
+  -a, --all         : Build both kernels
   -r, --regen       : Regenerate defconfig
   -c, --clean       : Clean build outputs and temporary artifacts
   -h, --help        : Show this help message
@@ -95,11 +90,13 @@ doExportEnv() {
 }
 
 doSendMsg() {
+    [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ] && return 0
     curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
         -d chat_id=$CHAT_ID -d parse_mode=HTML --data-urlencode text="$1" >/dev/null || true
 }
 
 doSendFile() {
+    [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ] && return 0
     curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" \
         -F chat_id=$CHAT_ID -F document=@"$1" -F caption="$2" >/dev/null || true
 }
@@ -132,15 +129,15 @@ doApplyKPatch() {
     for kp in "${files[@]}"; do
         if [ -f $kp ]; then
             if patch -p1 -R --dry-run < $kp &>/dev/null; then
-                msg "⚠️ Patch $(basename $kp) already applied, skipping..."
+                msg "- Patch $(basename $kp) already applied, skipping..."
             elif patch -p1 < $kp; then
-                msg "✅ Applied: $(basename $kp)"
+                msg "- Applied: $(basename $kp)"
             else
-                err "❌ Failed to apply: $(basename $kp)"
+                err "- Failed to apply: $(basename $kp)"
                 exit 1
             fi
         else
-            err "❌ Patch file not found: $kp"
+            err "- Patch file not found: $kp"
             exit 1
         fi
     done
@@ -157,7 +154,7 @@ doApplyKSU() {
     [ -f KernelSU-Next/kernel/setup.sh ] && bash KernelSU-Next/kernel/setup.sh --cleanup || true
     [ -f NoMount/kernel/setup.sh ] && bash NoMount/kernel/setup.sh --cleanup || true
 
-    for sub in NoMount KernelSU KernelSU-Next; do
+    for sub in KernelSU KernelSU-Next NoMount; do
         if git config --file .gitmodules --get-regexp "path" 2>/dev/null | grep -q $sub; then
             git submodule deinit -f $sub &>/dev/null || true
             git rm -f $sub &>/dev/null || true
@@ -205,7 +202,7 @@ doCompile() {
     start_time=$(date +"%s")
 
     doSendMsg "<b>====================================</b>
-<b>• Date :</b> <code>$(date +"%A, %d %b %Y, %H:%M:%S")</code>
+<b>• Build date :</b> <code>$(date +"%A, %d %b %Y, %H:%M:%S")</code>
 <b>• Device :</b> <code>Redmi Note 8 Pro</code>
 <b>• Linux version :</b> <code>$kversion</code>
 <b>• Branch :</b> <code>$branch</code>
@@ -252,11 +249,25 @@ doCompile() {
         elapsed="$((total_time / 60))m $((total_time % 60))s"
         md5csum=$(md5sum $zipname | cut -d" " -f1)
 
-        doSendFile $zipname "✅ Build took: $elapsed for begonia | MD5: $md5csum"
+        if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
+            msg "- Upload artifact to Telegram..."
+            doSendFile $zipname "✅ Build took: $elapsed for begonia | MD5: $md5csum"
+        else
+            msg "- Saving artifact locally..."
+            mkdir -p $KDIR/release
+            mv $zipname $KDIR/release/
+            msg "- Build artifact saved to $KDIR/release/$zipname"
+        fi
+
         doClean
     else
         err "- Build failed!"
-        doSendFile $BUILD_LOG "❌ Build failed!. Please check log."
+        if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
+            doSendFile $BUILD_LOG "❌ Build failed!. Please check log."
+        else
+            cp $BUILD_LOG $KDIR/
+            err "- Log artifact saved to $KDIR/$(basename $BUILD_LOG)"
+        fi
         exit 1
     fi
 }
@@ -282,7 +293,6 @@ elif [ "${build_all:-false}" = "true" ]; then
             doCompile normal
         fi
     done
-    msg "- All builds completed successfully!"
 else
     if [ "${kernelsu:-false}" = "true" ]; then
         doApplyKSU
