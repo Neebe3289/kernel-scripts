@@ -265,8 +265,7 @@ doCompile() {
         if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
             doSendFile $BUILD_LOG "❌ Build failed!. Please check log."
         else
-            cp $BUILD_LOG $KDIR/
-            err "- Log artifact saved to $KDIR/$(basename $BUILD_LOG)"
+            err "- Log artifact saved to $BUILD_LOG"
         fi
         exit 1
     fi
