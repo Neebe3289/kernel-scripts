@@ -4,7 +4,7 @@ set -euo pipefail
 
 KDIR=$(pwd)
 OUT_DIR=$KDIR/out
-BUILD_LOG=$OUT_DIR/buildlog-$(date +"%H%M").log
+BUILD_LOG=$OUT_DIR/build-$(date +"%H%M").log
 TOOLS_DIR=$KDIR/../tools
 CLANG_DIR=$TOOLS_DIR/clang-llvm
 GCC64_DIR=$TOOLS_DIR/gcc64
@@ -19,11 +19,6 @@ err() { echo -e "\e[1;31m$*\e[0m"; }
 
 #### Parsing parameters ####
 
-if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
-    err "- Missing BOT_TOKEN or CHAT_ID!"
-    exit 1
-fi
-
 while [ $# -gt 0 ]; do
     case "$1" in
         -b|--build)     kernelsu=false ;;
@@ -37,8 +32,8 @@ while [ $# -gt 0 ]; do
 Usage: $0 <operate>
 operate:
   -b, --build       : Build normal kernel + KPatch fixes
-  -k, --ksu         : Build KernelSU kernel
-  -a, --all         : Build both Normal and KernelSU kernels
+  -k, --ksu         : Build KernelSU kernels
+  -a, --all         : Build both kernels
   -r, --regen       : Regenerate defconfig
   -c, --clean       : Clean build outputs and temporary artifacts
   -h, --help        : Show this help message
@@ -95,11 +90,13 @@ doExportEnv() {
 }
 
 doSendMsg() {
+    [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ] && return 0
     curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
         -d chat_id=$CHAT_ID -d parse_mode=HTML --data-urlencode text="$1" >/dev/null || true
 }
 
 doSendFile() {
+    [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ] && return 0
     curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" \
         -F chat_id=$CHAT_ID -F document=@"$1" -F caption="$2" >/dev/null || true
 }
@@ -125,22 +122,22 @@ doApplyKPatch() {
     cd $KDIR
     msg "- Applying KPatch fixes"
 
-    local files=(
+   local files=(
         $PATCH_DIR/kernel_patch/kpatch_fix.patch
     )
 
     for kp in "${files[@]}"; do
         if [ -f $kp ]; then
             if patch -p1 -R --dry-run < $kp &>/dev/null; then
-                msg "⚠️ Patch $(basename $kp) already applied, skipping..."
+                msg "- Patch $(basename $kp) already applied, skipping..."
             elif patch -p1 < $kp; then
-                msg "✅ Applied: $(basename $kp)"
+                msg "- Applied: $(basename $kp)"
             else
-                err "❌ Failed to apply: $(basename $kp)"
+                err "- Failed to apply: $(basename $kp)"
                 exit 1
             fi
         else
-            err "❌ Patch file not found: $kp"
+            err "- Patch file not found: $kp"
             exit 1
         fi
     done
@@ -157,7 +154,7 @@ doApplyKSU() {
     [ -f KernelSU-Next/kernel/setup.sh ] && bash KernelSU-Next/kernel/setup.sh --cleanup || true
     [ -f NoMount/kernel/setup.sh ] && bash NoMount/kernel/setup.sh --cleanup || true
 
-    for sub in NoMount KernelSU KernelSU-Next; do
+    for sub in KernelSU KernelSU-Next NoMount; do
         if git config --file .gitmodules --get-regexp "path" 2>/dev/null | grep -q $sub; then
             git submodule deinit -f $sub &>/dev/null || true
             git rm -f $sub &>/dev/null || true
@@ -184,13 +181,12 @@ doRegenConfig() {
 doCompile() {
     cd $KDIR
     local build_type=${1:-normal}
-    local kversion branch commits start_time end_time total_time date_time zipname elapsed md5csum
 
     kversion=$(make kernelversion)
     branch=$(git rev-parse --abbrev-ref HEAD)
     commits=$(git rev-parse --short HEAD)
 
-    local cc_flag=clang
+    cc_flag=clang
     command -v ccache &>/dev/null && cc_flag="ccache clang"
 
     local args=(
@@ -205,7 +201,7 @@ doCompile() {
     start_time=$(date +"%s")
 
     doSendMsg "<b>====================================</b>
-<b>• Date :</b> <code>$(date +"%A, %d %b %Y, %H:%M:%S")</code>
+<b>• Build date :</b> <code>$(date +"%A, %d %b %Y, %H:%M:%S")</code>
 <b>• Device :</b> <code>Redmi Note 8 Pro</code>
 <b>• Linux version :</b> <code>$kversion</code>
 <b>• Branch :</b> <code>$branch</code>
@@ -227,11 +223,11 @@ doCompile() {
         make O=$OUT_DIR olddefconfig
     fi
 
-    msg "- Build kernel"
+    msg "- Build kernel..."
     make -j$(nproc --all) O=$OUT_DIR "${args[@]}" 2>&1 | tee $BUILD_LOG
 
     end_time=$(date +"%s")
-    total_time=$((end_time - start_time))
+    diff_time=$((end_time - start_time))
     date_time=$(date +"%Y%m%d-%H%M")
 
     if [ -f $OUT_DIR/arch/arm64/boot/Image.gz-dtb ]; then
@@ -249,14 +245,26 @@ doCompile() {
 
         zip -r9 $zipname . -x ".git*" "README.md"
 
-        elapsed="$((total_time / 60))m $((total_time % 60))s"
         md5csum=$(md5sum $zipname | cut -d" " -f1)
 
-        doSendFile $zipname "✅ Build took: $elapsed for begonia | MD5: $md5csum"
+        if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
+            msg "- Upload artifact to Telegram..."
+            doSendFile $zipname "✅ Build took: $((diff_time / 60))m $((diff_time % 60))s for begonia | MD5: $md5csum"
+        else
+            msg "- Saving artifact locally..."
+            mkdir -p $KDIR/release
+            mv $zipname $KDIR/release/
+            msg "- Build artifact saved to $KDIR/release/$zipname"
+        fi
+
         doClean
     else
         err "- Build failed!"
-        doSendFile $BUILD_LOG "❌ Build failed!. Please check log."
+        if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
+            doSendFile $BUILD_LOG "❌ Build failed!. Please check log."
+        else
+            err "- Log artifact saved to $BUILD_LOG"
+        fi
         exit 1
     fi
 }
@@ -282,7 +290,6 @@ elif [ "${build_all:-false}" = "true" ]; then
             doCompile normal
         fi
     done
-    msg "- All builds completed successfully!"
 else
     if [ "${kernelsu:-false}" = "true" ]; then
         doApplyKSU
