@@ -54,7 +54,7 @@ doSetupTools() {
         msg "- Downloading Clang"
         rm -rf $CLANG_DIR
         mkdir -p $CLANG_DIR
-        aria2c -s16 -x16 -k1M "https://github.com/Neebe3289/aosp-clang/releases/download/clang-23.0.1-16836431/clang-23.0.1-16836431.tar.gz" -o clang.tar.gz
+        aria2c -s16 -x16 -k1M "https://github.com/Neebe3289/aosp-clang/releases/download/clang-24.0.1-17033917/clang-24.0.1-17033917.tar.gz" -o clang.tar.gz
         tar -C $CLANG_DIR -zxf clang.tar.gz && rm -f clang.tar.gz
     else
         msg "- Clang compiler found!"
