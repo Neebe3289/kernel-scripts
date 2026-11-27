@@ -165,7 +165,7 @@ doApplyKSU() {
     rm -rf KernelSU KernelSU-Next NoMount drivers/kernelsu fs/nomount
 
     msg "- Syncing KernelSU feat NoMount drivers"
-    curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -
+    curl -LSs "https://raw.githubusercontent.com/manipvlator/KernelSU/main/kernel/setup.sh" | bash -
     curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
 }
 
